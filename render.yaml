@@ -1,0 +1,9 @@
+# Бесплатный постоянный хостинг на Render: New → Blueprint → выбрать этот репозиторий
+services:
+  - type: web
+    name: uk-rps
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health

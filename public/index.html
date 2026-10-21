@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Камень, ножницы, УК РФ</title>
+<meta name="description" content="Камень-ножницы-бумага по мотивам Уголовного кодекса: 10 статей, до 3 игроков, 3D-зал суда в браузере.">
+<meta name="theme-color" content="#0b0908">
+<meta property="og:title" content="Камень, ножницы, УК РФ">
+<meta property="og:description" content="Заходи в зал суда — сыграем статьями УК. До 3 игроков.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/vendor/fonts/russo-one/index.css">
+<link rel="stylesheet" href="/vendor/fonts/pt-serif/400.css">
+<link rel="stylesheet" href="/vendor/fonts/pt-serif/400-italic.css">
+<link rel="stylesheet" href="/vendor/fonts/pt-serif/700.css">
+<link rel="stylesheet" href="/vendor/fonts/pt-mono/index.css">
+<link rel="stylesheet" href="/css/style.css">
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="loading" class="loading">
+  <div class="loading-stamp">СУД ИДЁТ</div>
+  <div class="loading-text">Готовим зал заседаний…</div>
+</div>
+
+<!-- ============ Меню ============ -->
+<section id="menu" class="screen" hidden>
+  <div class="panel menu-panel">
+    <h1 class="logo" aria-label="Камень, ножницы, УК РФ">
+      <span class="logo-row">КАМЕНЬ,</span>
+      <span class="logo-row">НОЖНИЦЫ,</span>
+      <span class="logo-row logo-strike">БУМАГА</span>
+      <span class="logo-stamp">УК РФ</span>
+    </h1>
+    <p class="tagline">Камень-ножницы-бумага, только вместо камня — статья. 10 статей, до&nbsp;3&nbsp;подсудимых за одним столом.</p>
+
+    <label class="field">
+      <span>Ваше имя</span>
+      <input id="nameInput" maxlength="16" autocomplete="nickname" placeholder="Подсудимый">
+    </label>
+
+    <div id="invite" class="invite" hidden>
+      Вас вызывают в зал <b id="inviteCode"></b>
+      <button class="btn btn-gold" id="btnInvite">Явиться в суд</button>
+    </div>
+
+    <button class="btn btn-gold" id="btnCreate">Создать комнату</button>
+    <div class="join-row">
+      <input id="codeInput" maxlength="4" placeholder="КОД" autocomplete="off" spellcheck="false">
+      <button class="btn" id="btnJoin">Войти по коду</button>
+    </div>
+    <button class="btn btn-ghost" id="btnSolo">Тренировка с ботами</button>
+    <button class="btn-link" data-open-codex>📖 Кодекс: кто кого бьёт</button>
+    <p class="disclaimer">Игра — шутка. Сроки упрощены (ч.&nbsp;1 статей), не юридическая консультация. Не нарушайте закон.</p>
+  </div>
+</section>
+
+<!-- ============ Лобби ============ -->
+<section id="lobby" class="screen" hidden>
+  <div class="panel doc lobby-panel">
+    <div class="doc-head">
+      <div class="doc-kicker">Зал судебных заседаний</div>
+      <div class="doc-code" id="lobbyCode">—</div>
+    </div>
+    <div class="share">
+      <input id="shareLink" readonly>
+      <button class="btn btn-small" id="btnCopy">Копировать</button>
+      <button class="btn btn-small" id="btnShare" hidden>Поделиться</button>
+    </div>
+    <p class="doc-hint">Отправьте ссылку друзьям — до 3 игроков. Свободное место можно занять ботом.</p>
+    <ol class="seats" id="seats"></ol>
+    <div class="host-controls" id="hostControls">
+      <div class="target">
+        <span>Играем до</span>
+        <div class="seg" id="targetSeg">
+          <button data-target="3">3</button><button data-target="5">5</button><button data-target="7">7</button><button data-target="10">10</button>
+        </div>
+        <span>очков</span>
+      </div>
+      <button class="btn btn-gold" id="btnStart">Начать заседание</button>
+    </div>
+    <p class="doc-hint" id="guestWait" hidden>Ждём, пока хозяин комнаты начнёт заседание…</p>
+    <div class="lobby-foot">
+      <button class="btn-link" data-open-codex>📖 Кодекс</button>
+      <button class="btn-link" id="btnLeaveLobby">Покинуть зал</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HUD ============ -->
+<div id="hud" hidden>
+  <div class="hud-tl">
+    <div class="chip">Зал <b id="hudCode"></b></div>
+    <div id="scoreboard" class="scoreboard"></div>
+  </div>
+  <div class="hud-top">
+    <div class="round" id="roundLabel">Заседание №1</div>
+    <div class="phase" id="phaseMsg"></div>
+    <div class="timer" id="timer" hidden>
+      <svg viewBox="0 0 36 36"><circle class="timer-bg" cx="18" cy="18" r="15.5"/><circle class="timer-fg" id="timerRing" cx="18" cy="18" r="15.5"/></svg>
+      <span id="timerText"></span>
+    </div>
+  </div>
+  <div class="hud-tr">
+    <button class="icon-btn" id="btnEmote" title="Реакции">💬</button>
+    <button class="icon-btn" data-open-codex title="Кодекс">📖</button>
+    <button class="icon-btn" id="btnMute" title="Звук">🔊</button>
+    <button class="icon-btn" id="btnLeave" title="Выйти">🚪</button>
+  </div>
+  <div class="emotes" id="emoteBar" hidden></div>
+  <div id="plates"></div>
+  <div class="verdict" id="verdict"></div>
+  <div class="card-info" id="cardInfo"></div>
+</div>
+
+<!-- ============ Приговор ============ -->
+<section id="over" class="screen" hidden>
+  <div class="panel doc over-panel">
+    <div class="doc-kicker">Именем Игры</div>
+    <h2 class="over-title">ПРИГОВОР</h2>
+    <p class="over-sub" id="overSub"></p>
+    <ol class="over-list" id="overList"></ol>
+    <div class="over-actions" id="overHost">
+      <button class="btn btn-gold" id="btnRematch">Реванш</button>
+      <button class="btn" id="btnToLobby">В лобби</button>
+    </div>
+    <p class="doc-hint" id="overGuest" hidden>Ждём решения хозяина комнаты…</p>
+    <button class="btn-link" id="btnLeaveOver">Покинуть зал</button>
+  </div>
+</section>
+
+<!-- ============ Кодекс ============ -->
+<div id="codex" class="modal" hidden>
+  <div class="panel doc codex-panel">
+    <button class="modal-x" id="codexClose" aria-label="Закрыть">✕</button>
+    <div class="doc-kicker">Правила</div>
+    <h2>Кодекс игры</h2>
+    <p>Все выбирают статью одновременно. Каждая статья бьёт <b>4 следующие</b> по кругу, проигрывает <b>4 предыдущим</b> и сыгрывает вничью с <b>противоположной</b>. За каждую побеждённую статью соперника — 1 очко: втроём за раунд можно взять до 2 очков.</p>
+    <div class="circle" id="codexCircle"></div>
+    <div class="matrix-wrap"><table class="matrix" id="codexMatrix"></table></div>
+    <p class="matrix-legend"><span class="m-w">✔</span> строка бьёт столбец · <span class="m-l">✖</span> проигрывает · <span class="m-d">=</span> ничья</p>
+    <div class="codex-list" id="codexList"></div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+<div id="netStatus" class="net-status" hidden></div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
