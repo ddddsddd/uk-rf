@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Установка и обновление «Камень, ножницы, УК РФ» на сервере Ubuntu/Debian.
 #
-#   sudo git clone https://github.com/<аккаунт>/uk-rps.git /opt/uk-rps
+#   sudo git clone https://github.com/ddddsddd/uk-rf.git /opt/uk-rps
 #   sudo bash /opt/uk-rps/deploy/install.sh                  # игра на http://IP-сервера
 #   sudo bash /opt/uk-rps/deploy/install.sh game.example.ru  # https://game.example.ru (Caddy + Let's Encrypt)
 #   sudo bash /opt/uk-rps/deploy/install.sh --port 8080      # если порт 80 уже занят

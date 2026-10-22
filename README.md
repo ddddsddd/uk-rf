@@ -65,11 +65,10 @@ Cloudflare quick tunnel), после чего печатает ссылку ви
 
 ```bash
 sudo apt update && sudo apt install -y git
-sudo git clone https://github.com/ИМЯ/uk-rps.git /opt/uk-rps
+sudo git clone https://github.com/ddddsddd/uk-rf.git /opt/uk-rps
 sudo bash /opt/uk-rps/deploy/install.sh
 ```
 
-Вместо `ИМЯ` подставьте аккаунт GitHub, где лежит репозиторий (он должен быть публичным).
 Установщик ставит Node.js 22, если подходящего нет, создаёт системного пользователя `ukrps` и сервис
 `uk-rps`. Сервис сам перезапускается при сбоях и после перезагрузки сервера. В конце установщик
 печатает адрес игры: `http://IP-сервера`.
@@ -111,7 +110,7 @@ sudo bash /opt/uk-rps/deploy/install.sh game.example.ru
 ```bash
 sudo apt update && sudo apt install -y git curl
 curl -fsSL https://get.docker.com | sudo sh          # если Docker ещё не установлен
-sudo git clone https://github.com/ИМЯ/uk-rps.git /opt/uk-rps
+sudo git clone https://github.com/ddddsddd/uk-rf.git /opt/uk-rps
 cd /opt/uk-rps
 sudo docker compose up -d --build                    # игра на http://IP-сервера
 ```
