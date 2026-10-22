@@ -21,7 +21,7 @@ CONF=/etc/default/uk-rps
 UNIT=/etc/systemd/system/uk-rps.service
 CADDYFILE=/etc/caddy/Caddyfile
 APT_LOCK_CONF=/etc/apt/apt.conf.d/99uk-rps-lock
-LOG=/tmp/uk-rps-install.log
+LOG=/var/log/uk-rps-install.log
 
 say() { printf '\n\033[1;33m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;35m!!  %s\033[0m\n' "$*" >&2; }
@@ -49,9 +49,15 @@ apt_install() {
 }
 
 apt_update() {
-  local i
+  local i out
   for i in $(seq 1 60); do
-    apt-get update -qq >>"$LOG" 2>&1 && return 0
+    if out="$(apt-get update -qq 2>&1)"; then
+      printf '%s\n' "$out" >>"$LOG"
+      return 0
+    fi
+    printf '%s\n' "$out" >>"$LOG"
+    # ждём только блокировку; другие ошибки (например, битый сторонний репозиторий) показываем сразу
+    printf '%s' "$out" | grep -qiE 'could not get lock|unable to acquire|lists/lock' || return 1
     [ "$i" -eq 1 ] && echo "apt занят (обычно это автообновления на свежем сервере) — жду…"
     sleep 10
   done
@@ -293,7 +299,9 @@ main() {
       local head up
       head="$(gitq rev-parse HEAD)"
       up="$(gitq rev-parse '@{u}' 2>/dev/null || true)"
-      if [ -n "$up" ] && [ "$up" != "$head" ]; then
+      if [ -z "$up" ]; then
+        warn "у копии нет отслеживаемой ветки (detached HEAD?) — обновление пропускаю"
+      elif [ "$up" != "$head" ]; then
         if gitq merge-base --is-ancestor HEAD "$up"; then
           target="$up"
           echo "Есть новая версия: ${up:0:7}"
@@ -314,21 +322,35 @@ main() {
   if [ -n "$target" ]; then
     gitq merge --ff-only --quiet "$target" || {
       rm -rf "${DEPS_STAGED:-/nonexistent-uk-rps}"
-      die "не удалось переключить код (есть локальные изменения?). Работающая версия не тронута"
+      DEPS_STAGED=""
+      warn "не удалось переключить код (есть локальные правки в $app_dir?) — остаюсь на текущей версии."
+      warn "Сбросить правки: sudo git -C $app_dir checkout -- .   Не обновлять код: добавьте --no-pull"
     }
   fi
   swap_deps "$app_dir"
   chmod -R a+rX "$app_dir"
 
-  # ---- Caddy: уходим с домена — убираем свой блок, чтобы освободить порт 80
-  [ "$mode" = caddy ] || remove_caddy_block
-
   # ---- сервис
   say "Настраиваю сервис $SERVICE"
-  # порт проверяем до перезапуска игры, чтобы неудачный запуск её не выключил
+  # порт проверяем до любых изменений, чтобы неудачный запуск не выключил игру
   local owner
   owner="$(port_owner "$PORT")"
-  [ -z "$owner" ] || die "порт $PORT уже занят ($owner). Выберите другой: sudo bash $0 --port 8080"
+  if [ "$owner" = caddy ] && [ "$mode" != caddy ] && caddy_only_ours; then
+    owner="" # Caddy держит порт только ради игры — ниже он будет остановлен
+  fi
+  if [ -n "$owner" ]; then
+    local again alt
+    case "$mode" in
+      plain) again="--no-domain"; alt=8080 ;;
+      proxy) again="--behind-proxy"; alt=3001 ;;
+      caddy) again="$DOMAIN"; alt=3001 ;;
+    esac
+    [ "$PORT" = "$alt" ] && alt=$((alt + 1))
+    die "порт $PORT уже занят ($owner). Выберите другой: sudo bash $0 $again --port $alt"
+  fi
+
+  # Caddy: уходим с домена — убираем свой блок, чтобы освободить порт 80
+  [ "$mode" = caddy ] || remove_caddy_block
 
   # свои строки в файле настроек (например, MAX_ROOMS=…) сохраняем
   local extra=""
@@ -449,6 +471,12 @@ EOF
 
 Если игра не открывается снаружи, проверьте файрвол у хостинга (security group / «Сетевой экран»).
 EOF
+}
+
+# в Caddyfile есть блок игры и больше ни одного сайта
+caddy_only_ours() {
+  [ -f "$CADDYFILE" ] && grep -q '^# uk-rps begin' "$CADDYFILE" || return 1
+  ! awk '/^# uk-rps begin/ { s = 1; next } /^# uk-rps end/ { s = 0; next } !s' "$CADDYFILE" | grep -Eqv '^[[:space:]]*(#|$)'
 }
 
 # убрать блок игры из Caddyfile; если других сайтов не осталось — остановить Caddy

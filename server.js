@@ -109,12 +109,14 @@ function readBody(req, limit = 4096) {
 const clients = new Map(); // cid -> Client
 const ipCount = new Map(); // ip -> число подключений
 
-// IP игрока; за локальным прокси (Caddy, nginx, туннель) берём адрес из X-Forwarded-For —
-// последний элемент дописал наш прокси, остальные мог подделать клиент
+// IP игрока. За прокси на этом же сервере или в частной сети (Caddy, nginx, Docker, Render)
+// берём его из X-Forwarded-For: последний элемент дописал ближайший прокси, остальные мог подделать клиент
+const TRUSTED_PEER = /^(::ffff:)?(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|^::1$|^f[cd][0-9a-f]{2}:|^fe80:/i;
+
 function clientIp(req) {
   const addr = req.socket.remoteAddress || '';
   const fwd = req.headers['x-forwarded-for'];
-  if (fwd && /^(::ffff:)?127\.|^::1$/.test(addr)) return String(fwd).split(',').pop().trim();
+  if (fwd && TRUSTED_PEER.test(addr)) return String(fwd).split(',').pop().trim();
   return addr;
 }
 
@@ -700,7 +702,7 @@ setInterval(() => {
   for (const c of clients.values()) {
     if (c.ws || c.waiter) continue;
     // long-poll клиент пропал, либо подключился и так ни разу не опросил сервер
-    if (now - c.lastSeen > 45_000 || (!c.polled && now - c.created > 15_000)) c.drop();
+    if (now - c.lastSeen > 45_000 || (!c.polled && now - c.created > 30_000)) c.drop();
   }
   for (const [ip, list] of createLog) {
     if (!list.some((t) => now - t < 60_000)) createLog.delete(ip);
