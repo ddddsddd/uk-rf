@@ -54,7 +54,13 @@
       <button class="btn" id="btnJoin">Войти по коду</button>
     </div>
     <button class="btn btn-ghost" id="btnSolo">Тренировка с ботами</button>
-    <button class="btn-link" data-open-codex>📖 Кодекс: кто кого бьёт</button>
+    <div class="menu-foot">
+      <button class="btn-link" data-open-codex>📖 Кодекс: кто кого бьёт</button>
+      <span class="sound-toggles">
+        <button class="icon-btn" data-sfx-toggle title="Звуки">🔊</button>
+        <button class="icon-btn" data-music-toggle title="Музыка">🎵</button>
+      </span>
+    </div>
     <p class="disclaimer">Игра — шутка. Сроки упрощены (ч.&nbsp;1 статей), не юридическая консультация. Не нарушайте закон.</p>
   </div>
 </section>
@@ -108,7 +114,8 @@
   <div class="hud-tr">
     <button class="icon-btn" id="btnEmote" title="Реакции">💬</button>
     <button class="icon-btn" data-open-codex title="Кодекс">📖</button>
-    <button class="icon-btn" id="btnMute" title="Звук">🔊</button>
+    <button class="icon-btn" id="btnMute" data-sfx-toggle title="Звуки">🔊</button>
+    <button class="icon-btn" id="btnMusic" data-music-toggle title="Музыка">🎵</button>
     <button class="icon-btn" id="btnLeave" title="Выйти">🚪</button>
   </div>
   <div class="emotes" id="emoteBar" hidden></div>

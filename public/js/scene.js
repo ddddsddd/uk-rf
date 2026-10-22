@@ -1063,7 +1063,7 @@ export class GameScene {
     c.snap();
     this.slotCards.set(id, c);
     c.flyTo((card, t) => this.slotPose(id, card, t), 0.6, 1.0);
-    sfx.card();
+    sfx.oppPick();
   }
 
   // ------------------------------------------------------------ вскрытие
@@ -1097,7 +1097,9 @@ export class GameScene {
       }
     }
     this.sirenTarget = 0.85;
-    await wait(0.45);
+    // барабанная дробь, тарелка совпадает с переворотом карт
+    sfx.drumroll(1.0);
+    await wait(1.0);
 
     // переворот карт соперников
     sfx.flip();

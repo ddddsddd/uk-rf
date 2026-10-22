@@ -1,7 +1,7 @@
 import { ARTICLES, N, beatsList, losesList, drawWith, outcome } from '../shared/rules.js';
 import { GameScene } from './scene.js';
 import { Net } from './net.js';
-import { sfx, initAudio, setMuted, isMuted } from './audio.js';
+import { sfx, setupAudio, initAudio, isSfxOn, setSfx, isMusicOn, setMusic, setMusicMode, duckMusic } from './audio.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -62,6 +62,7 @@ const S = {
   autoJoin: null,
   overShown: null,
   emoteAt: 0,
+  lobbyCount: 0,
   pickRound: 0,
   pickSentAt: 0,
 };
@@ -77,6 +78,8 @@ const enqueue = (fn) => {
 // ---------------------------------------------------------------- загрузка
 
 async function boot() {
+  // звук включается на первом же касании/клике, даже пока грузится 3D
+  setupAudio();
   const fontLoads = [
     document.fonts.load('48px "Russo One"', 'КРАЖА 0123456789'),
     document.fonts.load('30px "PT Serif"', 'Кража'),
@@ -228,8 +231,11 @@ function playerById(id) {
 
 // ---------------------------------------------------------------- экраны
 
+const MUSIC_FOR_SCREEN = { menu: 'menu', lobby: 'lobby', hud: 'game', over: 'over' };
+
 function showScreen(name) {
   S.screen = name;
+  if (MUSIC_FOR_SCREEN[name]) setMusicMode(MUSIC_FOR_SCREEN[name]);
   $('#menu').hidden = name !== 'menu';
   $('#lobby').hidden = name !== 'lobby';
   $('#hud').hidden = name !== 'hud';
@@ -263,6 +269,9 @@ function showLobby() {
   S.round = 0;
   S.myPick = null;
   S.overShown = null;
+  // кто-то зашёл в комнату — звонок
+  if (S.screen === 'lobby' && room.players.length > S.lobbyCount) sfx.join();
+  S.lobbyCount = room.players.length;
   if (S.screen !== 'lobby') {
     scene.setMode('lobby');
     showScreen('lobby');
@@ -326,6 +335,7 @@ async function startRound() {
   scene.setLayout(layoutPlayers(), S.you);
   await scene.newRound();
   scene.setHandEnabled(S.room?.phase === 'pick');
+  if (S.room?.phase === 'pick') sfx.roundStart();
   updateHud();
 }
 
@@ -484,6 +494,7 @@ function onCardHover(idx) {
     hideCardInfo();
     return;
   }
+  if (!isTouch) sfx.cardHover();
   const a = ARTICLES[idx];
   el.style.setProperty('--ic', a.color);
   el.innerHTML = `
@@ -513,6 +524,8 @@ function onReveal(m) {
     $('#phaseMsg').textContent = 'Оглашение приговора';
     $('#timer').hidden = true;
     scene.setLayout(layoutPlayers(), S.you);
+    // музыка притихает на время оглашения
+    duckMusic(0.3, 3 + m.pairs.length * 1.9);
     if (m.late || !(S.you in m.picks)) {
       // подключились посреди вскрытия — просто ждём следующий раунд
       S.pendingGains = null;
@@ -723,8 +736,24 @@ function buildCodex() {
 
 const CYR = { А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', Р: 'P', С: 'C', Т: 'T', Х: 'X', У: 'Y', З: '3' };
 
+function syncSoundButtons() {
+  $$('[data-sfx-toggle]').forEach((b) => {
+    b.textContent = isSfxOn() ? '🔊' : '🔇';
+    b.title = isSfxOn() ? 'Звуки: вкл.' : 'Звуки: выкл.';
+  });
+  $$('[data-music-toggle]').forEach((b) => {
+    b.classList.toggle('off', !isMusicOn());
+    b.title = isMusicOn() ? 'Музыка: вкл.' : 'Музыка: выкл.';
+  });
+}
+
 function bindUI() {
-  addEventListener('pointerdown', () => initAudio(), { capture: true });
+  // короткий звук при наведении мышью на кнопки
+  document.addEventListener('pointerover', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    const b = e.target.closest('button');
+    if (b && !b.disabled && !b.contains(e.relatedTarget)) sfx.uiHover();
+  });
 
   $('#nameInput').addEventListener('change', () => {
     store.set('ukrps.name', $('#nameInput').value.trim());
@@ -825,11 +854,22 @@ function bindUI() {
   };
 
   // HUD
-  $('#btnMute').textContent = isMuted() ? '🔇' : '🔊';
-  $('#btnMute').onclick = () => {
-    setMuted(!isMuted());
-    $('#btnMute').textContent = isMuted() ? '🔇' : '🔊';
-  };
+  syncSoundButtons();
+  $$('[data-sfx-toggle]').forEach((b) =>
+    b.addEventListener('click', () => {
+      initAudio();
+      setSfx(!isSfxOn());
+      syncSoundButtons();
+      sfx.click();
+    }),
+  );
+  $$('[data-music-toggle]').forEach((b) =>
+    b.addEventListener('click', () => {
+      initAudio();
+      setMusic(!isMusicOn());
+      syncSoundButtons();
+    }),
+  );
   $('#btnEmote').onclick = () => {
     $('#emoteBar').hidden = !$('#emoteBar').hidden;
   };
@@ -867,6 +907,7 @@ function bindUI() {
 function toast(text, err = false) {
   const el = document.createElement('div');
   el.className = `toast${err ? ' err' : ''}`;
+  if (err) sfx.error();
   el.textContent = text;
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), 3500);

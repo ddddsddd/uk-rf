@@ -243,6 +243,20 @@ input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(233, 180, 76
 }
 .invite b { font-family: var(--display); letter-spacing: 3px; color: var(--gold); }
 
+.menu-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sound-toggles { display: flex; gap: 6px; }
+.icon-btn.off { opacity: 0.45; position: relative; }
+.icon-btn.off::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  top: 50%;
+  height: 2px;
+  background: #ff4a3d;
+  transform: rotate(-35deg);
+}
+
 .disclaimer { margin: 4px 0 0; font-size: 12px; color: #7d7262; line-height: 1.4; text-align: center; }
 
 /* ---------- «бумажный» документ ---------- */
