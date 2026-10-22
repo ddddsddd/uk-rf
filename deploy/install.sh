@@ -14,6 +14,8 @@
 # Прочие параметры: --no-pull (не обновлять код), --help.
 
 set -euo pipefail
+# создаваемые файлы (настройки, unit, конфиг apt) не должны быть доступны другим на запись
+umask 022
 
 APP_USER=ukrps
 SERVICE=uk-rps
@@ -245,6 +247,7 @@ main() {
   fi
 
   : >"$LOG"
+  chmod 600 "$LOG"
   trap cleanup EXIT
   export DEBIAN_FRONTEND=noninteractive
   printf 'DPkg::Lock::Timeout "600";\n' >"$APT_LOCK_CONF"
@@ -404,6 +407,8 @@ MemoryMax=512M
 [Install]
 WantedBy=multi-user.target
 EOF
+  # режим задаём явно: файлы могли остаться с прежними правами
+  chmod 644 "$CONF" "$UNIT"
 
   systemctl daemon-reload
   systemctl enable "$SERVICE" >/dev/null 2>&1
