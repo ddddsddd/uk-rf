@@ -1,5 +1,6 @@
-# Запуск: docker compose up -d --build
-# Игра будет на http://IP-сервера (порт меняется так: PUBLIC_PORT=8080 docker compose up -d)
+# Запуск: docker compose up -d --build — игра на http://IP-сервера.
+# Другой порт сохраните в файле .env рядом с этим файлом (его читает и обновление):
+#   echo PUBLIC_PORT=8080 | sudo tee .env
 services:
   uk-rps:
     build: .

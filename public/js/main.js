@@ -62,6 +62,8 @@ const S = {
   autoJoin: null,
   overShown: null,
   emoteAt: 0,
+  pickRound: 0,
+  pickSentAt: 0,
 };
 
 let scene;
@@ -438,6 +440,12 @@ function onFrame() {
   }
   const room = S.room;
   if (room && room.phase === 'pick') {
+    // выбор мог потеряться при обрыве связи — сервер его не видит, повторяем (только в том же раунде)
+    const mine = me();
+    if (S.myPick !== null && mine && !mine.picked && S.online && room.round === S.pickRound && performance.now() - S.pickSentAt > 2500) {
+      S.pickSentAt = performance.now();
+      net.send({ t: 'pick', card: S.myPick });
+    }
     const rem = Math.max(0, S.deadlineAt - performance.now());
     const sec = Math.ceil(rem / 1000);
     $('#timerText').textContent = sec;
@@ -457,6 +465,8 @@ function onCardPick(idx) {
   if (!room || room.phase !== 'pick' || S.animating) return;
   initAudio();
   S.myPick = idx;
+  S.pickRound = room.round;
+  S.pickSentAt = performance.now();
   scene.pickLocal(idx);
   send({ t: 'pick', card: idx });
   hideCardInfo();

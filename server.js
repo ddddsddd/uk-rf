@@ -7,18 +7,22 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { N, outcome, winText, drawText } from './public/shared/rules.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+// пустой HOST — слушаем все адреса, и IPv4, и IPv6
+const HOST = process.env.HOST || undefined;
 
 const MAX_PLAYERS = 3;
 // защита публичного сервера от переполнения
 const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 1000;
 const MAX_CLIENTS = Number(process.env.MAX_CLIENTS) || 5000;
+const MAX_CLIENTS_PER_IP = Number(process.env.MAX_CLIENTS_PER_IP) || 30;
+const ROOMS_PER_IP_PER_MIN = 10;
 const PICK_TIME = 30_000;
 const SEAT_COLORS = ['#e9b44c', '#4fd1c5', '#f472b6'];
 const BOT_NAMES = ['Прокурор', 'Адвокат', 'Присяжный', 'Судья', 'Понятой', 'Следователь'];
@@ -60,7 +64,8 @@ function serveStatic(req, res, pathname) {
         'Cache-Control': prefix === '/' ? 'no-cache' : 'public, max-age=86400',
       });
       if (req.method === 'HEAD') return res.end();
-      fs.createReadStream(file).pipe(res);
+      // pipeline закрывает файл и при оборванной загрузке, и при ошибке чтения
+      pipeline(fs.createReadStream(file), res, () => {});
     });
     return;
   }
@@ -102,19 +107,37 @@ function readBody(req, limit = 4096) {
 // ---------------------------------------------------------------- клиенты
 
 const clients = new Map(); // cid -> Client
+const ipCount = new Map(); // ip -> число подключений
+
+// IP игрока; за локальным прокси (Caddy, nginx, туннель) берём адрес из X-Forwarded-For —
+// последний элемент дописал наш прокси, остальные мог подделать клиент
+function clientIp(req) {
+  const addr = req.socket.remoteAddress || '';
+  const fwd = req.headers['x-forwarded-for'];
+  if (fwd && /^(::ffff:)?127\.|^::1$/.test(addr)) return String(fwd).split(',').pop().trim();
+  return addr;
+}
+
+function canConnect(ip) {
+  return clients.size < MAX_CLIENTS && (ipCount.get(ip) || 0) < MAX_CLIENTS_PER_IP;
+}
 
 class Client {
-  constructor() {
+  constructor(ip) {
     this.cid = crypto.randomBytes(12).toString('hex');
+    this.ip = ip;
     this.ws = null;
     this.queue = []; // для long-poll: [{seq, msg}]
     this.seq = 0;
     this.waiter = null;
-    this.lastSeen = Date.now();
+    this.created = Date.now();
+    this.lastSeen = this.created;
+    this.polled = false;
     this.room = null;
     this.player = null;
     this.rate = { t: 0, n: 0 };
     clients.set(this.cid, this);
+    ipCount.set(ip, (ipCount.get(ip) || 0) + 1);
   }
 
   send(msg) {
@@ -150,7 +173,10 @@ class Client {
   }
 
   drop() {
-    clients.delete(this.cid);
+    if (!clients.delete(this.cid)) return;
+    const n = (ipCount.get(this.ip) || 1) - 1;
+    if (n > 0) ipCount.set(this.ip, n);
+    else ipCount.delete(this.ip);
     if (this.waiter) {
       clearTimeout(this.waiter.timer);
       sendJSON(this.waiter.res, 410, { error: 'gone' });
@@ -446,6 +472,17 @@ class Room {
 
 // ---------------------------------------------------------------- протокол
 
+const createLog = new Map(); // ip -> времена создания комнат за последнюю минуту
+
+function allowCreate(ip) {
+  const now = Date.now();
+  const recent = (createLog.get(ip) || []).filter((t) => now - t < 60_000);
+  const ok = recent.length < ROOMS_PER_IP_PER_MIN;
+  if (ok) recent.push(now);
+  createLog.set(ip, recent);
+  return ok;
+}
+
 function handle(client, msg) {
   if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
   const room = client.room;
@@ -457,6 +494,7 @@ function handle(client, msg) {
     case 'create':
     case 'solo': {
       if (rooms.size >= MAX_ROOMS) return client.send({ t: 'error', text: 'Сервер переполнен, попробуйте позже' });
+      if (!allowCreate(client.ip)) return client.send({ t: 'error', text: 'Слишком много новых комнат, подождите минуту' });
       if (room && me) leave(client);
       const r = new Room();
       const p = r.addPlayer({ name: msg.name, token });
@@ -473,8 +511,9 @@ function handle(client, msg) {
       const code = String(msg.room || '').toUpperCase().slice(0, 8);
       const r = rooms.get(code);
       if (!r) return client.send({ t: 'error', code: 'no_room', text: `Комната ${code || '—'} не найдена` });
-      if (room && me && room !== r) leave(client);
       let p = token && r.players.find((x) => !x.bot && x.token === token);
+      // прежнее место освобождаем, если это не тот же игрок (иначе в комнате останется «призрак»)
+      if (room && me && me !== p) leave(client);
       if (!p) {
         if (r.players.length >= MAX_PLAYERS) {
           // если есть бот — гость занимает его место
@@ -567,13 +606,15 @@ function leave(client) {
 // ---------------------------------------------------------------- HTTP + WS
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x');
-  const p = url.pathname;
+  // всё внутри try: даже разбор адреса (запрос «//» бросает исключение) не должен уронить сервер
   try {
+    const url = new URL(req.url, 'http://x');
+    const p = url.pathname;
     if (p === '/api/health') return sendJSON(res, 200, { ok: true, rooms: rooms.size, clients: clients.size });
     if (p === '/api/connect' && req.method === 'POST') {
-      if (clients.size >= MAX_CLIENTS) return sendJSON(res, 503, { error: 'busy' });
-      const c = new Client();
+      const ip = clientIp(req);
+      if (!canConnect(ip)) return sendJSON(res, 503, { error: 'busy' });
+      const c = new Client(ip);
       return sendJSON(res, 200, { cid: c.cid });
     }
     if (p === '/api/send' && req.method === 'POST') {
@@ -588,6 +629,7 @@ const server = http.createServer(async (req, res) => {
       const c = clients.get(url.searchParams.get('cid'));
       if (!c) return sendJSON(res, 410, { error: 'gone' });
       c.lastSeen = Date.now();
+      c.polled = true;
       c.ack(Number(url.searchParams.get('ack')));
       if (c.waiter) {
         // повторный запрос: старый отпускаем пустым и забываем
@@ -619,12 +661,15 @@ const server = http.createServer(async (req, res) => {
 });
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });
-wss.on('connection', (ws) => {
-  if (clients.size >= MAX_CLIENTS) {
+wss.on('connection', (ws, req) => {
+  // без обработчика 'error' один кривой или слишком большой кадр роняет весь процесс
+  ws.on('error', () => ws.terminate());
+  const ip = clientIp(req);
+  if (!canConnect(ip)) {
     ws.close(1013, 'busy');
     return;
   }
-  const c = new Client();
+  const c = new Client(ip);
   c.ws = ws;
   ws.isAlive = true;
   ws.on('pong', () => (ws.isAlive = true));
@@ -653,7 +698,12 @@ setInterval(() => {
   }
   const now = Date.now();
   for (const c of clients.values()) {
-    if (!c.ws && !c.waiter && now - c.lastSeen > 45_000) c.drop();
+    if (c.ws || c.waiter) continue;
+    // long-poll клиент пропал, либо подключился и так ни разу не опросил сервер
+    if (now - c.lastSeen > 45_000 || (!c.polled && now - c.created > 15_000)) c.drop();
+  }
+  for (const [ip, list] of createLog) {
+    if (!list.some((t) => now - t < 60_000)) createLog.delete(ip);
   }
   for (const r of rooms.values()) {
     // Отвалившихся людей убираем: в лобби через минуту, во время игры через две
@@ -674,6 +724,6 @@ setInterval(() => {
   }
 }, 10_000);
 
-server.listen(PORT, HOST, () => {
-  console.log(`УК-RPS сервер: http://localhost:${PORT}`);
-});
+const onListen = () => console.log(`УК-RPS сервер: http://localhost:${PORT}`);
+if (HOST) server.listen(PORT, HOST, onListen);
+else server.listen(PORT, onListen);

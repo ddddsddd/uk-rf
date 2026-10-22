@@ -1,8 +1,16 @@
-# Если на сервере уже есть nginx: положите это в /etc/nginx/sites-available/uk-rps,
-# сделайте ссылку в sites-enabled, затем: sudo nginx -t && sudo systemctl reload nginx
-# HTTPS: sudo certbot --nginx -d game.example.ru
-# Игру при этом ставьте так: sudo bash deploy/install.sh game.example.ru
-# (она будет слушать 127.0.0.1:3000, а Caddy установщик ставить не станет, увидев занятый порт 80).
+# Если на сервере уже есть nginx (порты 80/443 заняты), игру ставьте так:
+#   sudo bash /opt/uk-rps/deploy/install.sh --behind-proxy
+# Она будет слушать 127.0.0.1:3000, а nginx будет передавать ей запросы.
+#
+# 1. Скопируйте этот файл и замените game.example.ru на свой домен:
+#      sudo cp /opt/uk-rps/deploy/nginx.conf.example /etc/nginx/sites-available/uk-rps
+#      sudo nano /etc/nginx/sites-available/uk-rps
+# 2. Включите сайт и проверьте конфигурацию:
+#      sudo ln -s /etc/nginx/sites-available/uk-rps /etc/nginx/sites-enabled/
+#      sudo nginx -t && sudo systemctl reload nginx
+# 3. HTTPS (Let's Encrypt):
+#      sudo apt install -y certbot python3-certbot-nginx
+#      sudo certbot --nginx -d game.example.ru
 
 server {
     listen 80;
@@ -11,10 +19,13 @@ server {
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
+        # WebSocket (/ws)
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        # настоящий IP игрока — по нему сервер считает лимиты подключений
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # long-poll (/api/poll) держит запрос до 20 секунд
         proxy_read_timeout 1h;
         proxy_buffering off;
     }

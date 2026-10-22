@@ -1,2 +1,5 @@
 node_modules
 *.zip
+.env
+.deps-new
+node_modules.old

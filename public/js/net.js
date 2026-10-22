@@ -28,6 +28,8 @@ export class Net {
           await this.openPoll(gen);
         }
         this.onStatus('online', this.mode);
+        // в режиме polling «hello» шлём сами — уже после статуса online, иначе повторный вход в комнату не уйдёт
+        if (this.mode === 'poll') this.onMessage({ t: 'hello', cid: this.cid });
         return;
       } catch {
         if (this.mode === null && !this.forcePoll && !this.wsFailed) {
@@ -52,6 +54,7 @@ export class Net {
         return;
       }
       let opened = false;
+      let openedAt = 0;
       const to = setTimeout(() => {
         if (!opened) {
           ws.close();
@@ -60,6 +63,7 @@ export class Net {
       }, 10000);
       ws.onopen = () => {
         opened = true;
+        openedAt = Date.now();
         clearTimeout(to);
         this.ws = ws;
         this.mode = 'ws';
@@ -81,7 +85,13 @@ export class Net {
       ws.onclose = () => {
         if (!opened || gen !== this.gen) return;
         this.ws = null;
-        this.connect();
+        // сервер закрывает соединение сразу (например, «занят») — переподключаемся с паузой, а не в цикле
+        this.quickCloses = Date.now() - openedAt < 5000 ? (this.quickCloses || 0) + 1 : 0;
+        const delay = this.quickCloses ? Math.min(8000, 500 * 2 ** this.quickCloses) : 0;
+        this.onStatus('offline');
+        setTimeout(() => {
+          if (gen === this.gen) this.connect();
+        }, delay);
       };
     });
   }
@@ -93,7 +103,6 @@ export class Net {
     this.cid = cid;
     this.ack = 0;
     this.mode = 'poll';
-    this.onMessage({ t: 'hello', cid });
     this.pollLoop(gen, cid);
   }
 

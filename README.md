@@ -55,14 +55,87 @@ npm run share
 Cloudflare quick tunnel), после чего печатает ссылку вида `https://xxxx.tunnelmole.net`.
 Ссылка работает, пока открыто окно терминала. Там же печатается адрес для игры в одной Wi-Fi сети.
 
-### Постоянный хостинг
+## Развёртывание на своём сервере (VPS)
 
-- **Render (бесплатно):** залейте папку в репозиторий GitHub → на render.com `New → Blueprint` →
-  выберите репозиторий (используется `render.yaml`). Получите постоянный адрес `https://uk-rps.onrender.com`.
-  Бесплатный сервис засыпает после 15 минут простоя и просыпается примерно за минуту.
-- **Docker / VPS:** `docker build -t uk-rps . && docker run -p 3000:3000 uk-rps`.
+Подойдёт любой VPS с Ubuntu 20.04+ или Debian 11+ и 1 ГБ памяти. Все команды выполняются на сервере
+по SSH. Если вы вошли как root и команды `sudo` нет, выполните `apt install -y sudo` или просто
+пишите команды без `sudo`.
 
-Порт задаётся переменной `PORT` (по умолчанию 3000).
+### Вариант 1: установщик (systemd, без Docker)
+
+```bash
+sudo apt update && sudo apt install -y git
+sudo git clone https://github.com/ИМЯ/uk-rps.git /opt/uk-rps
+sudo bash /opt/uk-rps/deploy/install.sh
+```
+
+Вместо `ИМЯ` подставьте аккаунт GitHub, где лежит репозиторий (он должен быть публичным).
+Установщик ставит Node.js 22, если подходящего нет, создаёт системного пользователя `ukrps` и сервис
+`uk-rps`. Сервис сам перезапускается при сбоях и после перезагрузки сервера. В конце установщик
+печатает адрес игры: `http://IP-сервера`.
+
+**С доменом и HTTPS.** Сначала создайте DNS-запись A для домена, указывающую на IP сервера, затем:
+
+```bash
+sudo bash /opt/uk-rps/deploy/install.sh game.example.ru
+```
+
+Установщик поставит Caddy, который сам получит и будет продлевать сертификат Let's Encrypt.
+Если своего домена нет, обычно подходит бесплатный адрес вида `203-0-113-5.sslip.io`
+(подставьте IP сервера через дефисы). Кириллические домены указывайте в punycode (`xn--...`).
+Для HTTPS нужны свободные порты 80 и 443. Если их занимает другая программа (например, VPN на 443),
+установщик откажет заранее и ничего не изменит.
+
+**Другие режимы:**
+
+- порт 80 занят другим сайтом: `sudo bash /opt/uk-rps/deploy/install.sh --port 8080`, игра будет
+  на `http://IP:8080`;
+- на сервере уже есть nginx: `sudo bash /opt/uk-rps/deploy/install.sh --behind-proxy`, игра будет
+  слушать `127.0.0.1:3000`, nginx подключите по примеру `deploy/nginx.conf.example`;
+- вернуться с домена на `http://IP`: `sudo bash /opt/uk-rps/deploy/install.sh --no-domain`.
+
+| Что сделать | Команда |
+|---|---|
+| Обновить игру до последней версии | `sudo bash /opt/uk-rps/deploy/install.sh` |
+| Статус | `sudo systemctl status uk-rps` |
+| Логи в реальном времени | `sudo journalctl -u uk-rps -f` |
+| Перезапустить | `sudo systemctl restart uk-rps` |
+| Удалить | `sudo bash /opt/uk-rps/deploy/install.sh --uninstall && sudo rm -r /opt/uk-rps` |
+
+Настройки хранятся в `/etc/default/uk-rps`, повторный запуск установщика их сохраняет (включая
+ваши строки вроде `MAX_ROOMS=...`). При обновлении новые зависимости сначала ставятся в отдельную папку:
+если что-то пойдёт не так, работающая версия игры останется нетронутой.
+
+### Вариант 2: Docker (любой Linux)
+
+```bash
+sudo apt update && sudo apt install -y git curl
+curl -fsSL https://get.docker.com | sudo sh          # если Docker ещё не установлен
+sudo git clone https://github.com/ИМЯ/uk-rps.git /opt/uk-rps
+cd /opt/uk-rps
+sudo docker compose up -d --build                    # игра на http://IP-сервера
+```
+
+| Что сделать | Команда |
+|---|---|
+| Другой порт (запоминается) | `cd /opt/uk-rps && echo PUBLIC_PORT=8080 \| sudo tee .env && sudo docker compose up -d` |
+| Обновить | `cd /opt/uk-rps && sudo git pull && sudo docker compose up -d --build` |
+| Логи | `sudo docker logs -f uk-rps` |
+| Удалить | `cd /opt/uk-rps && sudo docker compose down --rmi all && cd / && sudo rm -r /opt/uk-rps` |
+
+Если игра не открывается снаружи, откройте порт в панели хостинга (security group / сетевой экран)
+и в `ufw`, если он включён: `sudo ufw allow 80/tcp`.
+
+## Другие варианты хостинга
+
+- **Render (бесплатно):** репозиторий GitHub → на render.com `New → Blueprint` → выберите репозиторий
+  (используется `render.yaml`). Получите адрес `https://uk-rps.onrender.com`. Бесплатный сервис
+  засыпает после 15 минут простоя и просыпается примерно за минуту.
+
+Порт задаётся переменной `PORT` (по умолчанию 3000), адрес — `HOST` (по умолчанию все адреса IPv4 и IPv6).
+Лимиты: `MAX_ROOMS` (1000 комнат), `MAX_CLIENTS` (5000 подключений), `MAX_CLIENTS_PER_IP`
+(30 подключений с одного IP); новых комнат с одного IP — не больше 10 в минуту. За прокси на том же
+сервере (Caddy, nginx) IP игрока берётся из заголовка `X-Forwarded-For`.
 
 ## Управление
 
